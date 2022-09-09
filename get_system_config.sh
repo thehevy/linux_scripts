@@ -11,7 +11,7 @@ if [[ "$status" == 0 ]]; then
 fi
 
 if [[ -z $iface ]]; then 
-	readarray interfaces < <(find /sys/class/net -mindepth 1 -maxdepth 1 ! -name eno* ! -name enx* ! -name cal* ! -name tun*  ! -name docker* ! -name lo ! -name vir* ! -name br -printf "%P " -execdir cat {}/device/device \;  | awk '{ print $1 }')
+	readarray interfaces < <(find /sys/class/net -mindepth 1 -maxdepth 1 ! -name br* ! -name eno* ! -name enx* ! -name cal* ! -name tun*  ! -name docker* ! -name lo ! -name vir* ! -name br -printf "%P " -execdir cat {}/device/device \;  | awk '{ print $1 }')
 else
 	interfaces=($iface)
 fi
@@ -315,6 +315,40 @@ echo "************************************************************" >> $outfile
 echo system_level_config >> $outfile
 echo updated=$current_time >> $outfile
 echo "************************************************************" >> $outfile
+	sysctl_outfile=configuration_sysctl.ALL.`hostname`.conf
+	sysctl -a > ${sysctl_outfile}
+	net_core_list=(somaxconn netdev_max_backlog rmem_default wmem_default rmem_max wmem_max optmem_max rps_sock_flow_entries netdev_rss_key netdev_budget netdev_budget_usecs dev_weight_rx_bias dev_weight_tx_bias busy_poll busy_read max_skb_frags default_qdisc)
+	for item in ${net_core_list[@]}; do
+		grep net.core.$item ${sysctl_outfile} | sed -r 's/ = /=/g' >> $outfile
+	done
+	
+	net_ipv4_list=(tcp_available_congestion_control tcp_congestion_control tcp_moderate_rcvbuf tcp_notsent_lowat tcp_max_syn_backlog tcp_mem tcp_rmem tcp_wmem tcp_limit_output_bytes tcp_slow_start_after_idle tcp_tw_reuse tcp_timestamps tcp_window_scaling tcp_autocorking tcp_early_retrans tcp_ecn tcp_dsack tcp_sack tcp_fack tcp_fastopen tcp_no_metrics_save tcp_mtu_probing tcp_low_latency tcp_max_orphans tcp_synack_retries tcp_syncookies tcp_fin_timeout tcp_keepalive_intvl tcp_keepalive_probes)
+	
+	for item in ${net_ipv4_list[@]}; do
+		grep net.ipv4.$item ${sysctl_outfile} | sed -r 's/ = /=/g' >> $outfile
+	done
+
+	grep vm.dirty_ratio ${sysctl_outfile} | sed -r 's/ = /=/g' >> $outfile
+	grep vm.dirty_background_ratio ${sysctl_outfile} | sed -r 's/ = /=/g' >> $outfile
+	grep vm.swappiness ${sysctl_outfile} | sed -r 's/ = /=/g' >> $outfile
+	grep vm.min_free_kbytes ${sysctl_outfile} | sed -r 's/ = /=/g' >> $outfile
+	grep vm.zone_reclaim_mode ${sysctl_outfile} | sed -r 's/ = /=/g' >> $outfile
+
+	grep kernel.sched_migration_cost_ns ${sysctl_outfile} | sed -r 's/ = /=/g' >> $outfile
+	grep kernel.sched_min_granularity_ns ${sysctl_outfile} | sed -r 's/ = /=/g' >> $outfile
+	grep kernel.sched_wakeup_granularity_ns ${sysctl_outfile} | sed -r 's/ = /=/g' >> $outfile
+	grep kernel.perf_event_max_sample_rate ${sysctl_outfile} | sed -r 's/ = /=/g' >> $outfile
+	grep kernel.perf_cpu_time_max_percent ${sysctl_outfile} | sed -r 's/ = /=/g' >> $outfile
+
+	grep fs.file-nr ${sysctl_outfile} | sed -r 's/ = /=/g' >> $outfile
+
+	echo >> $outfile
+}
+System_info_sysctl(){	
+echo "************************************************************" >> $outfile
+echo system_level_config >> $outfile
+echo updated=$current_time >> $outfile
+echo "************************************************************" >> $outfile
 	net_core_list=(somaxconn netdev_max_backlog rmem_default wmem_default rmem_max wmem_max optmem_max rps_sock_flow_entries netdev_rss_key netdev_budget netdev_budget_usecs dev_weight_rx_bias dev_weight_tx_bias busy_poll busy_read max_skb_frags default_qdisc)
 	for item in ${net_core_list[@]}; do
 		sysctl net.core.$item | sed -r 's/ = /=/g' >> $outfile
@@ -380,7 +414,6 @@ ALL(){
 		$item
 	done
 	echo >> $outfile
-	sysctl -a > configuration_sysctl.ALL.`hostname`.conf
 }
 
 if [ -z "$1" ]
