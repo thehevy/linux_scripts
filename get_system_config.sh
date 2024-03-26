@@ -1,6 +1,6 @@
 #!/bin/bash
 current_time=$(date "+%b-%d-%Y_%I_%M_%S")
-tasks=(version meminfo Intel800Series drivers DDP NUMA IRQ CPU CPU_Power CPU_Freq CPU_Topology System_info TUNED_status IRQ_Balance_status)
+tasks=(version meminfo Intel800Series drivers DDP NUMA CPU CPU_Power CPU_Freq CPU_Topology System_info TUNED_status IRQ_Balance_status) #IRQ System_info_sysctl)
 drivers_list=(ice idpf i40e iavf) #idpf
 
 ls setup_parameters.sh > /dev/null 2>&1
@@ -9,13 +9,14 @@ if [[ "$status" == 0 ]]; then
 	echo "using parameters in setup_parameters.sh"
 	source setup_parameters.sh
 fi
-iface=ens11f0
+#iface=ens11f0
 if [[ -z $iface ]]; then 
 	readarray interfaces < <(find /sys/class/net -mindepth 1 -maxdepth 1 ! -name "br*" ! -name "eno*" ! -name "enx*" ! -name "cal*" ! -name "tun*"  ! -name "docker*" ! -name "lo" ! -name "vir*" -printf "%P " -execdir cat {}/device/device \;  | awk '{ print $1 }')
 else
-	interfaces=("$iface")
+	interfaces=($iface)
 fi
-#echo "Reporting configurations for interface(s) " "${interfaces[@]// /}" 
+echo "Reporting configurations for interface(s) "
+echo "${interfaces[@]// /}" 
 
 # Function: version
 # Function to retrieve system configuration information
@@ -68,93 +69,74 @@ Intel800Series(){
 		echo Intel800Series
 		echo "updated=$current_time"
 		echo "************************************************************"
-	} >> "${outfile}"
-
-	# Iterate through the list of interfaces
-	for i in "${interfaces[@]// /}" ; do
-		echo "$i"
-		{
+		# Iterate through the list of interfaces
+		for i in "${interfaces[@]// /}" ; do
 			# Print details for the current interface
-			echo "Details for \"$i\""
-			find /sys/class/net -mindepth 1 -maxdepth 1 -name "$i" -printf "%P.device_id=" -execdir cat {}/device/device \; 
-			echo -n "$i" 
-			ethtool -i "$i" | grep firmware-version | awk '{ print ".firmware="$3 }'	
-			echo -n "$i" 
-			ethtool -i "$i" | grep bus-info | awk '{ print ".pci_address="$2 }'
-			find /sys/class/net -mindepth 1 -maxdepth 1 -name "$i" -printf "%P.mac_address=" -execdir cat {}/address \; 
-			find /sys/class/net -mindepth 1 -maxdepth 1 -name "$i" -printf "%P.numa_node=" -execdir cat {}/device/numa_node \; 
-		} >> "${outfile}"
-
-		# Get IP address for the interface
-		ipaddr=$(ip -f inet -o addr show dev "$i"|cut -d\  -f7|cut -d/ -f1)
-		if [ -z "$ipaddr" ]
-		then
-			# If IP address is not available, write NA to the output file
-			echo -n "$i" >> "${outfile}"; echo ".ip_address=NA" >> "${outfile}"
-		else
-			# Write the IP address to the output file
-			echo -n "$i" >> "${outfile}";  echo ".ip_address=${ipaddr}" >> "${outfile}"
-		fi
-		echo >> "${outfile}"
-
-		# Check if the ice driver is compiled with ADQ flag
-		ethtool -S "${i}" | grep "pkts_bp_stop_budget" > /dev/null 2>&1
-		status=$?
-		if [[ "$status" == 0 ]]; then
-			echo "ice driver COMPILED with ADQ flag. ADQ statitics enabled."  >> "${outfile}"
-		else 
-			echo "ice driver NOT COMPILED with ADQ flag" >> "${outfile}"
-		fi
-		echo >> "${outfile}"
-
-		# Get IRQ information for the interface
-		irqs=""
-		mapfile -t irqs < <(grep "$i" /proc/interrupts | cut -f1 -d:)
-		if [ -n "${irqs[0]}" ]; then 
-			{
-				# Write IRQ count and start information to the output file
-				echo "$i"".irq.count=""${#irqs[@]}" | sed -r 's/\s+//g' 
-				echo "$i"".irq.start=""${irqs[0]}" | sed -r 's/\s+//g' 
-				echo "$i"".irq.start=""${irqs[-1]}" | sed -r 's/\s+//g' 
-			} >> "${outfile}"
-		fi
-
-		{
 			echo
-			echo "ip link show information"
-		} >> "${outfile}"
-		
-		interface=$i
-		linkstatus=$(ip link show "$i" | sed 's/^.*\: //' | awk '$1=$1')
-		{
+			echo "Details for $i"
+			find /sys/class/net -mindepth 1 -maxdepth 1 -name $i -printf "%P.device_id=" -execdir cat {}/device/device \;
+			echo -n $i; ethtool -i $i | grep firmware-version | awk '{ print ".firmware="$2 }'	
+			echo -n $i; ethtool -i $i | grep bus-info | awk '{ print ".pci_address="$2 }'
+			find /sys/class/net -mindepth 1 -maxdepth 1 -name $i -printf "%P.mac_address=" -execdir cat {}/address \; 
+			find /sys/class/net -mindepth 1 -maxdepth 1 -name $i -printf "%P.numa_node=" -execdir cat {}/device/numa_node \; 
+			# Get IP address for the interface
+			ipaddr=$(ip -f inet -o addr show dev $i |cut -d\  -f7|cut -d/ -f1)
+			if [ -z "$ipaddr" ]
+			then
+				# If IP address is not available, write NA to the output file
+				echo -n $i; echo ".ip_address=NA" 
+			else
+				# Write the IP address to the output file
+				echo -n $i; echo ".ip_address=${ipaddr}" 
+			fi
+			echo 
+			# Check if the ice driver is compiled with ADQ flag
+			ethtool -S ${i} | grep "pkts_bp_stop_budget" > /dev/null 2>&1
+			status=$?
+			if [[ "$status" == 0 ]]; then
+				echo "ice driver COMPILED with ADQ flag. ADQ statitics enabled."
+			else 
+				echo "ice driver NOT COMPILED with ADQ flag" 
+			fi
+			echo 
+			# Get IRQ information for the interface
+			irqs=""
+			mapfile -t irqs < <(grep $i /proc/interrupts | cut -f1 -d:)
+			if [ -n "${irqs[0]}" ]; then 
+					# Write IRQ count and start information to the output file
+					echo $i".irq.count=""${#irqs[@]}" | sed -r 's/\s+//g' 
+					echo $i".irq.start=""${irqs[0]}" | sed -r 's/\s+//g' 
+					echo $i".irq.start=""${irqs[-1]}" | sed -r 's/\s+//g' 
+			fi
+				echo
+				echo "ip link show information"
+			# Get link status information for the interface			
+			interface=$i
+			linkstatus=$(ip link show $i | sed 's/^.*\: //' | awk '$1=$1')
 			# Write link status information to the output file
-			echo "$interface.linkstatus = $linkstatus"
+			echo $interface".linkstatus="$linkstatus
 			echo
 			echo "tc qdisc show information for $i" 
-		} >> "${outfile}"
-		counter=1
-		tc qdisc show dev "$i" | while read -r line ; do
-			# Write tc qdisc show information to the output file
-			echo "$interface"_tc_qdisc_entry.$counter="$line" >> "${outfile}"
-			counter=$((counter+1))
-		done 
-
-		echo >> "${outfile}"
-		echo >> "${outfile}"
-	done
-
-	{
+			# Get tc qdisc show information for the interface
+			n=1
+			tc qdisc show dev $i | while read -r line ; do
+				((n++))
+				# Write tc qdisc show information to the output file
+				echo ${interface}"_tc_qdisc_entry."${n}"="${line}
+			done 
+		done
 		# Print footer information
 		echo "************************************************************" 
-		echo 'All devices should report the following -- 126.016 Gb/s available PCIe bandwidth, limited by 8 GT/s x16 link' 
+		echo 'All devices should report the following -- greater than 126.016 Gb/s available PCIe bandwidth, limited by 8 GT/s x16 link' 
+		# Get bus status information for devices with PCIe connections
+		n=0
+		dmesg | grep 'ice 000' | grep PCIe | sed 's/\[[^]]*\] ice //g' | sort | uniq | while read -r line ; do
+			((n++))
+			currentbus=$(dmesg | grep 'ice 000' | grep PCIe | sed 's/\[[^]]*\] ice //g' | sort | uniq | awk '{print substr($1, 1, length($1)-1)}' | sed -n "${n}"p)
+			echo "bus_status.$currentbus=$line"
+		done 
+		echo 
 	} >> "${outfile}"
-
-	# Get bus status information for devices with PCIe connections
-	dmesg | grep 'ice 000' | grep PCIe | sed 's/\[[^]]*\] ice //g' | sort | uniq | while read -r line ; do
-		currentbus=$(dmesg | grep 'ice 000' | grep PCIe | sed 's/\[[^]]*\] ice //g' | sort | uniq | awk '{print substr($1, 1, length($1)-1)}' | sed -n "${counter}"p)
-		echo "bus_status.$currentbus=$line" >> "${outfile}"
-	done 
-	echo >> "${outfile}"
 }
 
 #drivers
@@ -172,8 +154,8 @@ drivers(){
 		echo "************************************************************"
 	} >> "${outfile}"
 
-	for driver in "${drivers_list[@]}"; do
-		lsmod | grep "${driver}" > /dev/null 2>&1
+	for driver in ${drivers_list[@]}; do
+		lsmod | grep ${driver} > /dev/null 2>&1
 		status=$?
 		if [[ "$status" == 0 ]]; then
 			{
@@ -197,81 +179,61 @@ drivers(){
 # Returns: None
 DDP(){
 	{ 
+		echo
 		echo "************************************************************"
 		echo ice_DDP 
 		echo updated="$current_time" 
 		echo "************************************************************" 
-	} >> "${outfile}"
-
-	# Retrieve DDP package status for each bus and write it to the output file.
-	dmesg | grep ice.pkg | sed 's/\[[^]]*\] ice //g' | sort | uniq | while read -r line ; do
-	  	currentbus=$(dmesg | grep ice.pkg | sed 's/\[[^]]*\] ice //g' | sort | uniq | awk '{print substr($1, 1, length($1)-1)}' | sed -n "${counter}"p)
-		echo "DDP_pkg_status.$currentbus=$line" >> "${outfile}"
-	done 
-
-	{	
+		# Retrieve DDP package status for each bus and write it to the output file.
+		dmesg | grep "DDP package " | sed 's/\[[^]]*\] ice //g' | sort | uniq 
 		echo
 		echo "DDP_Updates_pkg=/lib/firmware/updates/intel/ice/ddp/ice.pkg" 
+		updates_ddp_pkg=/lib/firmware/updates/intel/ice/ddp/ice.pkg
+		ddp_pkg=/lib/firmware/intel/ice/ddp/ice.pkg
+		# Check if DDP updates package exists and write its information to the output file.
+		if [[ -f "$updates_ddp_pkg" ]]; then
+				echo "${updates_ddp_pkg} exists and will be used as the DDP package."
+				echo DDP_Updates_pkg_date="$(stat -c '%.10y ' $updates_ddp_pkg)"
+				echo DDP_Updates_pkg_size="$(du -sh --apparent-size $updates_ddp_pkg)" | awk '{print $1}'
+		# Check if DDP package exists and write its information to the output file.
+		elif [[ -f "$ddp_pkg" ]]; then
+			echo "${ddp_pkg} exists and will be used as the DDP package."
+			echo DDP_pkg_date="$(stat -c '%.10y ' $ddp_pkg)"
+			echo DDP_pkg_size="$(du -sh --apparent-size $ddp_pkg)" | awk '{print $1}'
+		else
+				echo DDP_Updates_pkg_error=$updates_ddp_pkg " does not exist. The adapters may be running in Safe Mode and will not be fully featured."
+				echo DDP_pkg_error=$ddp_pkg " does not exist. The adapters may be running in Safe Mode and will not be fully featured."
+				echo 
+		fi
+		# Count the number of DDP updates packages and write the count to the output file.
+		DPP_Updates_pkg_count=$(find /lib/firmware/updates/intel/ice/ddp/ -name '*.pkg' | wc -l)
+		echo "DPP_Updates_pkg_count=$DPP_Updates_pkg_count"
+		# Write the names of DDP updates packages to the output file.
+		updatespkgcounter=0
+		find /usr/lib/firmware/updates/intel/ice/ddp/ -name '*.pkg' -exec basename {} \; | while read -r i ; do
+			((updatespkgcounter++))
+			symlink=$(readlink -f "/usr/lib/firmware/updates/intel/ice/ddp/${i}")
+			if [[ "$symlink" != "/usr/lib/firmware/updates/intel/ice/ddp/$i" ]]; then
+				echo "DDP_Updates_pkg_file.$updatespkgcounter=$i -> $symlink"
+			else
+				echo "DDP_Updates_pkg_file.$updatespkgcounter=$i"
+			fi
+		done
+		# Count the number of DDP packages and write the count to the output file.
+		echo DPP_pkg_count="$(find /lib/firmware/intel/ice/ddp -type f -name '*.pkg' | wc -l)" 
+		# Write the names of DDP packages to the output file.
+		pkgcounter=0
+		find /usr/lib/firmware/intel/ice/ddp/ -name '*.pkg' -exec basename {} \; | while read -r i ; do
+			((pkgcounter++))
+			symlink=$(readlink -f /usr/lib/firmware/intel/ice/ddp/"${i}")
+			if [[ "$symlink" != "/usr/lib/firmware/intel/ice/ddp/${i}" ]]; then
+				echo "DDP_pkg_file.$pkgcounter=$i -> $symlink"
+			else
+				echo "DDP_pkg_file.$pkgcounter=$i"
+			fi
+		done
+		echo 
 	} >> "${outfile}"
-
-	updates_ddp_pkg=/lib/firmware/updates/intel/ice/ddp/ice.pkg
-
-	# Check if DDP updates package exists and write its information to the output file.
-	if [[ -f "$updates_ddp_pkg" ]]; then
-		{
-			echo DDP_Updates_pkg_date="$(stat -c '%.10y ' /lib/firmware/updates/intel/ice/ddp/ice.pkg)"
-			echo DDP_Updates_pkg_size="$(du -sh --apparent-size /lib/firmware/updates/intel/ice/ddp/ice.pkg) | awk '{print $1}'"
-			echo 
-		} >> "${outfile}"
-	else
-		{
-			echo DDP_Updates_pkg_error=$updates_ddp_pkg " does not exist. The adapters may be running in Safe Mode and will not be fully featured."
-			echo 
-		} >> "${outfile}"
-	fi
-	
-	# Count the number of DDP updates packages and write the count to the output file.
-	DPP_Updates_pkg_count=$(find /lib/firmware/updates/intel/ice/ddp/ -name '*.pkg' | wc -l)
-	echo "DPP_Updates_pkg_count=$DPP_Updates_pkg_count" >> "${outfile}"
-	updatespkgcounter=1
-
-	# Write the names of DDP updates packages to the output file.
-	find /lib/firmware/updates/intel/ice/ddp/ -name '*.pkg' -exec basename {} \; | while read -r i ; do
-		echo DDP_Updates_pkg_file.$updatespkgcounter="$i" >> "${outfile}"
-		updatespkgcounter=$((updatespkgcounter+1))
-	done
-
-	ddp_pkg=/lib/firmware/intel/ice/ddp/ice.pkg
-	{
-		echo
-		echo "DDP_pkg=$ddp_pkg" 
-	} >> "${outfile}"
-
-	# Check if DDP package exists and write its information to the output file.
-	if [[ -f "$ddp_pkg" ]]; then
-		{
-		echo DDP_pkg_date="$(stat -c '%.10y ' $ddp_pkg)"
-		echo DDP_pkg_size="$(du -sh --apparent-size $ddp_pkg) | awk '{print $1}'"
-		echo
-		} >> "${outfile}"
-	else
-		{
-		echo DDP_pkg_error=$ddp_pkg " does not exist. DPDK may not work correctly." >> "${outfile}"
-		echo
-		} >> "${outfile}"
-	fi
-
-	# Count the number of DDP packages and write the count to the output file.
-	echo DPP_pkg_count="$(find /lib/firmware/intel/ice/ddp -type f -name '*.pkg' | wc -l)" >> "${outfile}"
-	pkgcounter=1
-
-	# Write the names of DDP packages to the output file.
-	find /lib/firmware/intel/ice/ddp/ -name '*.pkg' -exec basename {} \; | while read -r i ; do
-		echo "DDP_pkg_file.$pkgcounter=$i" >> "${outfile}"
-		pkgcounter=$((pkgcounter+1))
-	done
-
-	echo >> "${outfile}"
 }
 
 #NUMA
@@ -281,85 +243,78 @@ DDP(){
 # Output: The NUMA information is appended to the output file specified by the 'outfile' variable.
 NUMA(){
 	{ 
+		echo 
 		echo "************************************************************"
 		echo NUMA
 		echo updated="$current_time"
 		echo "************************************************************"
-	} >> "${outfile}"
-	lscpu | grep NUMA | while read -r line ; do
-		echo "$line" | sed -e 's/[)(]//g' -e 's/: /=/g' -e 's/ /_/g' >> "${outfile}"
-	done
-	echo >> "${outfile}"
+		lscpu | grep NUMA | while read -r line ; do
+			echo "$line" | sed -e 's/[)(]//g' -e 's/: /=/g' -e 's/ /_/g'
+		done
+		echo
+	} >> "${outfile}"	
 }
 
 #IRQ
 # Function to retrieve IRQ information and write it to a file
 IRQ(){
+	folder_path="/proc/irq/*/smp_affinity"
 	{ 
+		echo 
 		echo "************************************************************"
 		echo IRQ
 		echo updated="$current_time"
 		echo "************************************************************"
+		# Check if the folder path is not empty
+		if [[ -n $folder_path ]]; then
+			echo "Values in ""$folder_path"" folder"
+			# Get the list of files in the folder
+			folder_files=$(ls $folder_path)
+			# Iterate through each file in the folder
+			for file in $folder_files; do 
+				irqnumber=${file////.}
+				# Write the IRQ number and its corresponding value to the output file
+				echo "${irqnumber}""="$(cat $file) | sed 's/.proc.//g'
+			done
+		fi
+		echo
 	} >> "${outfile}"
-	
-	folder_path="/proc/irq/*/smp_affinity"
-	# Check if the folder path is not empty
-	if [[ -n $folder_path ]]; then
-		echo "Values in ""$folder_path"" folder" >> "${outfile}"
-		
-		# Get the list of files in the folder
-		folder_files=$(ls $folder_path)
-		
-		# Iterate through each file in the folder
-		for file in $folder_files; do 
-			irqnumber=${file////.}
-			
-			# Write the IRQ number and its corresponding value to the output file
-			echo "${irqnumber}""="$(cat $file) | sed 's/.proc.//g' >> "${outfile}"
-		done
-	fi
-	
-	echo >> "${outfile}"
+
 }
 
 #CPU
 # Function to retrieve CPU information and write it to a file
 CPU(){
 	{ 
+		echo
 		echo "************************************************************"
 		echo CPU
 		echo updated="$current_time"
 		echo "************************************************************"
+		# Path to the parent directory containing CPU information
+		parent_path="/sys/devices/system/cpu/"
+		# Loop through each folder in the parent directory
+		for folder in ${parent_path}; do 
+			folder_path=${folder} ; 
+			# Check if the folder is a directory
+			if [[ -d $folder_path ]]; then
+				echo "Values in ""${folder_path}"" folder"
+				# Get the list of files in the folder
+				folder_files=$(ls "$folder_path")
+				# Loop through each file in the folder
+				for file in ${folder_files}; do 
+					# Check if the file is a directory
+					if [ -d "$folder_path"/"${file}" ]; then
+						skip=1
+					else
+						# Write the file name and its contents to the output file
+						echo "${file}""=""$(cat "${folder_path}"/"${file}")"
+					fi
+				done
+			fi
+		done
+		echo
 	} >> "${outfile}"		
-
-    # Path to the parent directory containing CPU information
-    parent_path="/sys/devices/system/cpu/"
-
-    # Loop through each folder in the parent directory
-	for folder in ${parent_path}; do 
-        folder_path=${folder} ; 
-        
-        # Check if the folder is a directory
-        if [[ -d $folder_path ]]; then
-            echo "Values in ""${folder_path}"" folder" >> "${outfile}"
-            
-            # Get the list of files in the folder
-            folder_files=$(ls "$folder_path")
-            
-            # Loop through each file in the folder
-            for file in ${folder_files}; do 
-				# Check if the file is a directory
-				if [ -d "$folder_path"/"${file}" ]; then
-					skip=1
-				else
-					# Write the file name and its contents to the output file
-					echo "${file}""=""$(cat "${folder_path}"/"${file}")" >> "${outfile}" 
-				fi
-			done
-            echo >> "${outfile}" 
-		fi
-	done
-    echo >> "${outfile}"
 }
 
 #CPU_Power
@@ -370,14 +325,14 @@ CPU_Power(){
 		echo CPU_Power
 		echo updated="$current_time"
 		echo "************************************************************"
+		folder_path="/sys/devices/system/cpu/intel_pstate/"
+		if [[ -d ${folder_path} ]]; then
+			echo "Values in ""${folder_path}"" folder"
+			folder_files=$(ls "$folder_path")
+			for file in $folder_files; do echo "${file}""=""$(cat "${folder_path}"/"${file}")"; done
+		fi
+		echo
 	} >> "${outfile}"	
-	folder_path="/sys/devices/system/cpu/intel_pstate/"
-	if [[ -d ${folder_path} ]]; then
-		echo "Values in ""${folder_path}"" folder" >> "${outfile}"
-		folder_files=$(ls "$folder_path")
-		for file in $folder_files; do echo "${file}""=""$(cat "${folder_path}"/"${file}")" >> "${outfile}"; done
-	fi
-	echo >> "${outfile}"
 }
 
 #CPU_Freq
@@ -389,14 +344,14 @@ CPU_Freq(){
 		echo CPU_Freq
 		echo updated="$current_time"
 		echo "************************************************************"
-	} >> "${outfile}"
-	folder_path="/sys/devices/system/cpu/cpu0/cpufreq/"
-	if [[ -d $folder_path ]]; then
-		echo "Values in ""${folder_path}"" folder" >> "${outfile}"
-		folder_files=$(ls $folder_path)
-		for file in $folder_files; do echo "${file}""=""$(cat ${folder_path}/"${file}")" >> "${outfile}" ; done
-	fi
-	echo >> "${outfile}"
+		folder_path="/sys/devices/system/cpu/cpu0/cpufreq/"
+		if [[ -d $folder_path ]]; then
+			echo "Values in ""${folder_path}"" folder"
+			folder_files=$(ls $folder_path)
+			for file in $folder_files; do echo "${file}""=""$(cat ${folder_path}/"${file}")" ; done
+		fi
+		echo 
+	} >> "${outfile}"	
 }
 
 #CPU_Topology
@@ -407,63 +362,54 @@ CPU_Topology(){
 		echo CPU_Topology
 		echo updated="$current_time"
 		echo "************************************************************"
-	} >> "${outfile}"
-	folder_path="/sys/devices/system/cpu/cpu0/topology/"
-	if [[ -d $folder_path ]]; then
-		echo "Values in ""${folder_path}"" folder" >> "${outfile}"
-		folder_files=$(ls $folder_path)
-		for file in $folder_files; do echo "${file}""=""$(cat $folder_path/"${file}")" >> "${outfile}" ; done
-	fi
-	{
+		folder_path="/sys/devices/system/cpu/cpu0/topology/"
+		if [[ -d $folder_path ]]; then
+			echo "Values in ""${folder_path}"" folder" 
+			folder_files=$(ls $folder_path)
+			for file in $folder_files; do echo "${file}""=""$(cat $folder_path/"${file}")"; done
+		fi
 		echo
 		echo "************************************************************" 
 		echo CPU_0_thermal_throttle_information.updated="$current_time" 
 		echo "************************************************************"
-	} >> "${outfile}"
-
-	folder_path="/sys/devices/system/cpu/cpu0/thermal_throttle/"
-	if [[ -d $folder_path ]]; then
-		echo "Values in ""${folder_path}"" folder" >> "${outfile}"
-		folder_files=$(ls "$folder_path")
-		for file in $folder_files; do echo "$file""=""$(cat $folder_path/"${file}")" >> "${outfile}" ; done
-	fi
-	{
+		folder_path="/sys/devices/system/cpu/cpu0/thermal_throttle/"
+		if [[ -d $folder_path ]]; then
+			echo "Values in ""${folder_path}"" folder"
+			folder_files=$(ls "$folder_path")
+			for file in $folder_files; do echo "$file""=""$(cat $folder_path/"${file}")"  ; done
+		fi
 		echo
 		echo "************************************************************" 
-		echo CPU_cpuidle_information.updated="$current_time" >> "${outfile}"
+		echo CPU_cpuidle_information.updated="$current_time" 
 		echo "************************************************************"
-	} >> "${outfile}"
-
-	folder_path="/sys/devices/system/cpu/cpuidle/"
-	if [[ -d $folder_path ]]; then
-		echo "Values in ""${folder_path}"" folder" >> "${outfile}"
-		folder_files=$(ls "$folder_path")
-		for file in $folder_files; do echo "$file""=""$(cat $folder_path/"${file}")" >> "${outfile}" ; done
-	fi
-	{
+		folder_path="/sys/devices/system/cpu/cpuidle/"
+		if [[ -d $folder_path ]]; then
+			echo "Values in ""${folder_path}"" folder"
+			folder_files=$(ls "$folder_path")
+			for file in $folder_files; do echo "$file""=""$(cat $folder_path/"${file}")"  ; done
+		fi
 		echo
 		echo "************************************************************" 
 		echo CPU_0_cpuidle_information.updated="$current_time" 
 		echo "************************************************************"
-	} >> "${outfile}"
-
         parent_path="/sys/devices/system/cpu/cpu0/cpuidle/state*/"
-	for folder in $parent_path; do folder_path=$folder ; 
-        if [[ -d $folder_path ]]; then
-                echo "Values in ""${folder_path}"" folder" >> "${outfile}"
-				statefolder=$(basename "${folder_path}")
-                folder_files=$(ls "$folder_path")
-                for file in $folder_files; do 
-					if [ -d "${folder_path}"/"${file}" ]; then
-						echo "$file" is a directory >> "${outfile}"
-					else
-						echo "$statefolder"."$file""=""$(cat "${folder_path}"/"${file}")" >> "${outfile}" 
-					fi
-				done
-        echo >> "${outfile}" 
-		fi
-	done
-        echo >> "${outfile}"
+		for folder in $parent_path; do folder_path=$folder ; 
+			if [[ -d $folder_path ]]; then
+					echo "Values in ""${folder_path}"" folder" 
+					statefolder=$(basename "${folder_path}")
+					folder_files=$(ls "$folder_path")
+					for file in $folder_files; do 
+						if [ -d "${folder_path}"/"${file}" ]; then
+							echo "$file" is a directory 
+						else
+							echo "$statefolder"."$file""=""$(cat "${folder_path}"/"${file}")"  
+						fi
+					done
+			echo 
+			fi
+		done
+        echo
+	} >> "${outfile}"
 }
 
 #System_info
@@ -507,8 +453,6 @@ System_info(){
 		grep "kernel.perf_cpu_time_max_percent" "${sysctl_outfile}"
 		grep "fs.file-nr" "${sysctl_outfile}"
 	} | sed -r 's/ = /=/g' >> "${outfile}"
-
-	echo >> "${outfile}"
 }
 
 System_info_sysctl(){	
@@ -641,9 +585,10 @@ if [ -z "$1" ]
 	then
 		ALL
 	else
-outfile="configuration_details.$1.$(hostname).txt"
-touch "${outfile}"
-date > "${outfile}"
-	echo >> "${outfile}"
-	$1
+		outfile="configuration_details.$1.$(hostname).txt"
+		touch "${outfile}"
+		date > "${outfile}"
+		echo >> "${outfile}"
+		$1
 fi
+
